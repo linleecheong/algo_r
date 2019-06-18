@@ -1,0 +1,363 @@
+---
+title: "STAT245 Project"
+author: "Lin Lee Cheong & Terence Tam"
+date: "August 11, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+load('/Users/linleecheong/Documents/STATS245P/data.RData')
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+```
+
+## 1. About the data
+The data is equally divided between control and test groups, and for each group it is also evenly divided between pre-experiment and post-experiment data.
+```{r}
+# Number of entries in data set
+nrow(userLevel)
+
+# Number of entries between control and test group (0 for control, 1 for test')
+table(userLevel$Group)
+
+# 'Number of entries between control/test and pre/post-experiment data'
+table(userLevel$Group, userLevel$IsPreExperiment)
+```
+
+For ease of use later, we first separate dataset into control and test group.
+
+```{r}
+control_group <- userLevel[userLevel$Group == 0, ]
+test_group <- userLevel[userLevel$Group == 1, ]
+```
+
+## 2 Hypothesis testing:
+The 5 parameters we would like to apply hypothesis testing are: PV, numDays, numVisits, sumX, sumY. 
+
+The null hypothesis (H0) we would like to test is that there is no difference in the means between control and test group. So H0: mean(control) - mean(test) = 0 for each of the parameters
+```{r}
+userLevel %>%
+  select(-UserID) %>%
+  filter(IsPreExperiment == 0) %>%
+  group_by(Group) %>%
+  summarise_all(mean)
+```
+
+Here we test the hypothesis using three methods: 1) Simple t-testing without accounting for multiple hypothesis, 2) Holm's step-down procedure, 3) Hochberg's step up procedure.
+
+In all three testing methods below yield the same conclusion.
+
+### 2a. Simple t-test/Wald test:
+Accept hypothesis using alpha level of 5%. This would be a two-sample t-test, with pooled variance. We assume that other than the parameter of interest, all other conditions are the same for the control and test group. So the variance of the two groups are the same.
+
+Of the 5 metrics of interest, we would reject the null hypothesis only for sumY.
+
+```{r}
+alpha <- 0.05
+metric <- c('PV', 'numDays', 'numVisits', 'sumX', 'sumY')
+results <- NULL
+for(cur_metric in 1:length(metric)){
+  print(paste0('Hypothesis testing for ', metric[cur_metric]))
+  print(t.test(control_group[control_group$IsPreExperiment == 0, metric[cur_metric]],
+         test_group[test_group$IsPreExperiment == 0, metric[cur_metric]], var.equal = TRUE,
+         paired = FALSE))
+  results[cur_metric] <- t.test(control_group[control_group$IsPreExperiment == 0, metric[cur_metric]],
+         test_group[test_group$IsPreExperiment == 0, metric[cur_metric]], var.equal = TRUE,
+         paired = FALSE)$p.value
+}
+
+# calculated pvalues and which null hypothesis was accepted
+names(results) <- metric
+print(results)
+results < alpha
+```
+### 2b. Holm's step-down procedure
+For family-wise error rate FWER <= alpha of 0.05:
+```{r}
+# order the p-values in ascending order
+results <- results[order(results)]
+
+# create adjusted alpha: alpha / (m + 1 - k)
+adj_alpha <- alpha / (length(results) + 1 - seq(1, length(results)))
+
+# compare the p-values to the adjusted alpha levels, same conclusion as separately that only sumY hypothesis
+# is accepted
+print('which H0 was rejected')
+!(results > adj_alpha)
+
+Holm_results <- results > adj_alpha
+names(Holm_results) <- names(results)
+```
+
+### 2c. Hochberg's step up procedure
+For family-wise error rate FWER <= alpha of 0.05:
+```{r}
+# order the p-values in descending order
+results <- results[order(results)]
+
+# create adjusted alpha: alpha / (m + 1 - k)
+adj_alpha <- alpha / (length(results) + 1 - seq(1, length(results)))
+
+# compare the p-values to the adjusted alpha levels, same conclusion as separately that only sumY hypothesis
+# is rejected
+print('which H0 was rejected')
+results <= adj_alpha
+
+Hochberg_results <- ! (results <= adj_alpha)
+names(Hochberg_results) <- names(results)
+```
+
+## 3. Paper 2 frequentist approach of reducing variance 
+Of the five metrics, the metric numDays can already be categorized by days so we can stratify the data using it to reduce the variance for the other four metrics. For numDays itself, we can use PV as stratefication category as well.
+
+### 3a. Stratification
+Looking quickly at the pre-experiment data for control group, indeed see variance differences between the different categories in numDays.
+```{r}
+# randomly select 5000 rows from pre-experiment control group
+# convert metric columns to numeric for pairs function to visualize
+df <- control_group %>%
+  filter(IsPreExperiment == 1) %>%
+  select(PV, numDays, numVisits, sumX, sumY) %>%
+  sample_n(5000) %>%
+  mutate(PV = as.numeric(PV),
+         numDays = as.numeric(numDays),
+         numVisits = as.numeric(numVisits))
+pairs(df[, metric])
+```
+
+Calculating for all metrics except numDays itself:
+```{r}
+# calculate the stratified variance 
+# IsPreExperiment == 0 group only
+control_total_count <- length(control_group$IsPreExperiment == 0)
+test_total_count <- length(test_group$IsPreExperiment == 0)
+
+# calculate weights using combined data from AA and AB
+weights <- table(userLevel[userLevel$IsPreExperiment == 0, 'numDays']) / 
+  sum(userLevel$IsPreExperiment == 0)
+weights <- data.frame(numDays = names(weights), wk = as.vector(weights))
+
+# initialize vectors
+test_stat <- NULL
+p_value_strat <- NULL
+
+for(cur_metric in 1:length(metric)){ 
+  # calculate mean and var/n_per_strat for control group stratified by numDays 
+  # then merge weight information
+  control_group %>%
+    filter(IsPreExperiment == 0) %>%
+    group_by(numDays) %>%
+    dplyr::summarize_(mean_metric_c = paste0('mean(', metric[cur_metric], ')'),
+                      var_metric_c = paste0('sum((', metric[cur_metric], ' - mean_metric_c)**2) / n()')) ->
+    control_strat
+  control_strat <- merge(control_strat, weights, by = 'numDays')
+
+  # calculate mean and var for control group stratified by numDays
+  test_group %>%
+    filter(IsPreExperiment == 0) %>%
+    group_by(numDays) %>%
+    dplyr::summarize_(mean_metric_t = paste0('mean(', metric[cur_metric], ')'),
+                      var_metric_t = paste0('sum((', metric[cur_metric], ' - mean_metric_t)**2) / n()')) -> 
+    test_strat
+  
+  # merge test and control data
+  # combine test and control data by numDay categories, calculate mean difference and total variance 
+  #   -mean diff sum of weight * (control_mean_per_strat - test_mean_per_strat)
+  #   -variance is similarly calculated for var_control and var_test, then combined using
+  #    var(all) = var(control) / n_control + var(test) / n_test
+  # test statistic is mean diff / sqrt(var)
+  comb_strat <- merge(control_strat, test_strat, by = 'numDays')
+  mean_diff <- sum(comb_strat$wk * (comb_strat$mean_metric_c - comb_strat$mean_metric_t))
+  sd_all <- sqrt(sum(comb_strat$var_metric_t * comb_strat$wk) / sum(test_group$IsPreExperiment == 0) + 
+                   sum(comb_strat$var_metric_c * comb_strat$wk) / sum(control_group$IsPreExperiment == 0))
+  test_stat[cur_metric] <- mean_diff / sd_all
+  p_value_strat[cur_metric] <- ifelse(pnorm(test_stat[cur_metric]) >= .5, 
+                                      1 - pnorm(test_stat[cur_metric]),
+                                      pnorm(test_stat[cur_metric]))
+}
+
+names(p_value_strat) <- metric
+print(p_value_strat)
+```
+
+Apply the same logic to numDays using PV as stratification, and backfill the vector. Note that there are 410 unique categories to PV stratification.
+```{r}
+idx <- which(metric == 'numDays')
+
+# calculate weights using combined data from AA and AB
+weights <- table(userLevel[userLevel$IsPreExperiment == 0, 'PV']) / 
+  sum(userLevel$IsPreExperiment == 0)
+weights <- data.frame(PV = names(weights), wk = as.vector(weights))
+
+# calculate mean and var/n_per_strat for control group stratified by PV specific for numDays metric
+# then merge weight information
+control_group %>%
+  filter(IsPreExperiment == 0) %>%
+  group_by(PV) %>%
+  dplyr::summarize_(mean_metric_c = paste0('mean(', metric[idx], ')'),
+                    var_metric_c = paste0('sum((', metric[idx], ' - mean_metric_c)**2) / n()')) ->
+  control_strat
+control_strat <- merge(control_strat, weights, by = 'PV')
+
+# calculate mean and var for control group stratified by PV
+test_group %>%
+  filter(IsPreExperiment == 0) %>%
+  group_by(PV) %>%
+  dplyr::summarize_(mean_metric_t = paste0('mean(', metric[idx], ')'),
+                    var_metric_t = paste0('sum((', metric[idx], ' - mean_metric_t)**2) / n()')) -> 
+  test_strat
+
+comb_strat <- merge(control_strat, test_strat, by = 'PV')
+mean_diff <- sum(comb_strat$wk * (comb_strat$mean_metric_c - comb_strat$mean_metric_t))
+sd_all <- sqrt(sum(comb_strat$var_metric_t * comb_strat$wk) / sum(test_group$IsPreExperiment == 0) + 
+                 sum(comb_strat$var_metric_c * comb_strat$wk) / sum(control_group$IsPreExperiment == 0))
+test_stat[idx] <- mean_diff / sd_all
+p_value_strat[idx] <- ifelse(pnorm(test_stat[idx]) >= .5, 
+                             1 - pnorm(test_stat[idx]),
+                             pnorm(test_stat[idx]))
+
+p_value_strat
+
+strat_results <- p_value_strat < alpha
+names(strat_results) <- names(p_value_strat)
+```  
+
+### 3b. Comparing stratified p_values to normal t-testing
+Comparing between the p-values from straight up individual hypothesis testing, stratification has reduced variance and resulted in smaller p-values.
+
+```{r}
+#Normal p-values by T/Wald test
+results[metric]
+
+#Compare to stratified p-values
+p_value_strat[metric]
+```
+
+## 4. Paper 1 Bayesian hypothesis testing
+
+### 4a. Estimating initial p and V
+Here we take use of the pre-experimental data to estimate both p and V using resampling. 
+```{r}
+# grab only the pre-experiment data and calculate total count (for variance calculations later)
+control_group_pre <- control_group %>%
+  filter(IsPreExperiment == 1)
+n_control_pre <- dim(control_group_pre)[1]
+test_group_pre <- test_group %>%
+  filter(IsPreExperiment == 1)
+n_test_pre <- dim(test_group_pre)[1]
+
+# set resample number
+n_bootstrap_runs <- 300
+
+# initialize
+p <- NULL
+V2 <- NULL
+
+# boot strap for every metric
+for(cur_metric in 1:length(metric)){
+  # initialize
+  z_stat <- NULL
+  record_sigma <- NULL
+  
+
+  for(cur_iter in 1:n_bootstrap_runs){
+    # sample with replacement
+    control_sample <- sample(n_control_pre, n_control_pre, replace = TRUE)
+    test_sample <- sample(n_test_pre, n_test_pre, replace = TRUE)
+    
+    # calculate delta and sd according to paper equation section 3
+    delta <- mean(control_group_pre[control_sample, metric[cur_metric]]) - 
+      mean(test_group_pre[test_sample, metric[cur_metric]])
+    
+    sigma <- sqrt(var(control_group_pre[control_sample, metric[cur_metric]]) / n_control_pre + 
+                    var(test_group_pre[test_sample, metric[cur_metric]]) / n_test_pre)
+    
+    # record the z-statistic and sigma for each run
+    z_stat[cur_iter] <- delta / sigma
+    record_sigma[cur_iter] <- sigma 
+  }
+  
+  # for each metric, calculate the average times we reject hypothesis (p) and 
+  # average variance for all the runs (V2)
+  p[cur_metric] <- mean(pnorm(z_stat) <= 0.05)
+  V2[cur_metric] <- mean(record_sigma ** 2)
+}
+
+names(p) <- metric
+names(V2) <- metric
+
+p
+V2
+```
+
+Taking the alpha0 equation from the handwritten lecture's notes (page 35), 
+```{r}
+# calculate number Nc, Nt, and Ne. Then compute V2 + sigma2/n
+n_control_post <- sum(control_group$IsPreExperiment == 0)
+n_test_post <- sum(test_group$IsPreExperiment == 0)
+Ne <- 1 / (1 / n_test_post + 1 / n_control_post)
+marginal_variance <- V2 + 1 / Ne
+
+# calculate pi0/pi1, mean and variances
+pi0_over_pi1 <- (1 - p) / p
+
+mean_control_post <- control_group %>%
+  filter(IsPreExperiment == 0) %>%
+  select(PV, numDays, numVisits, sumX, sumY) %>%
+  summarize_all(mean)
+
+mean_test_post <- test_group %>%
+  filter(IsPreExperiment == 0) %>%
+  select(PV, numDays, numVisits, sumX, sumY) %>%
+  summarize_all(mean)
+
+var_control_post <- control_group %>%
+  filter(IsPreExperiment == 0) %>%
+  select(PV, numDays, numVisits, sumX, sumY) %>%
+  summarise(var_PV = (sum((PV - mean(PV)) ** 2))  / n_control_post,
+            var_numDays = (sum((numDays - mean(numDays)) **2)) / n_control_post,
+            var_numVisits = (sum((numVisits - mean(numVisits)) **2)) / n_control_post,
+            var_sumX = (sum((sumX - mean(sumX)) **2)) / n_control_post,
+            var_sumY = (sum((sumY - mean(sumY)) **2)) / n_control_post)
+
+var_test_post <- test_group %>%
+  filter(IsPreExperiment == 0) %>%
+  select(PV, numDays, numVisits, sumX, sumY) %>%
+  summarise(var_PV = (sum((PV - mean(PV)) ** 2))  / n_test_post,
+            var_numDays = (sum((numDays - mean(numDays)) **2)) / n_test_post,
+            var_numVisits = (sum((numVisits - mean(numVisits)) **2)) / n_test_post,
+            var_sumX = (sum((sumX - mean(sumX)) **2)) / n_test_post,
+            var_sumY = (sum((sumY - mean(sumY)) **2)) / n_test_post)
+
+# use above to calculate the mu and sd
+pooled_sd <- sqrt(Ne * (var_control_post + var_test_post))
+x_bar <- (mean_control_post - mean_test_post) / pooled_sd
+
+# since this is a test on whether delta is zero, so theta0 = 0
+alpha0 <- (1 + pi0_over_pi1 * exp(0.5 * ((x_bar * Ne) ** 2) / (1 +  1 / (V2 * Ne))) / sqrt (1 + Ne * V2)) **(-1)
+
+alpha0
+
+# the probability of alpha 1 happening is
+1 - alpha0
+
+# so the metrics where null hypothesis is rejected is where the probability of null hypothesis is
+# larger than the probability of alternative hypothesis
+# In this case, three metrics are rejected instead: numDays, sumX, sumY
+(1 - alpha0) > alpha0
+
+bayes_results <- as.vector((1 - alpha0) > alpha0)
+names(bayes_results) <- names(mean_control_post)
+```
+
+## 5. Comparing the different hypothesis testing methods
+Here we see Hochberg and Holm arrive as the same conclusion that only sumY's null hypothesis can be rejected. Stratification which reduces variance, and thus reduces the p-values have rejected the null hypothesis for both sumX and sumY. In comparison, Bayesian method has rejected all three: sumX, sumY and numDays!
+```{r}
+all_results <- data.frame(Hochberg = Hochberg_results[metric],
+                          Holm = Holm_results[metric],
+                          Stratification = !strat_results[metric],
+                          Bayesian = !bayes_results[metric])
+all_results
+```
