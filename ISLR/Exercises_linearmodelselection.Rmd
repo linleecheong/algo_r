@@ -1,0 +1,52 @@
+Linear Model Selection and Regularization Exercises
+===================================================
+
+Applied exercises
+
+Problem 8
+----------
+Part (a): generate predictor X of length 100. Assume mean is 0 and SD=1
+```{r}
+set.seed(2016)
+X<-rnorm(n=100,mean=0,sd=1)
+epsilon<-rnorm(n=100,mean=0,sd=0.5)
+```
+
+Part (b): Generate response vecotr Y of length n=100
+```{r}
+beta0<-1
+beta1<-2
+beta2<-5
+beta3<-3
+Y<-beta0+beta1*X+beta2*(X^2)+beta3*(X^3)+epsilon
+```
+
+Part(c): best subset selection
+```{r,warning=FALSE}
+library(leaps)
+datasource<-data.frame(X=X,X2=X^2,X3=X^3,X4=X^4,X5=X^5,X6=X^6,X7=X^7,X8=X^8,X9=X^9,X10=X^10,Y=Y)
+model.fit<-regsubsets(Y~.,data=datasource,nvmax=10)
+
+summary(model.fit)
+
+#look at results
+model.summary<-summary(model.fit)
+names(summary(model.fit))
+
+#Based on Cp, 3 gives you the best model
+plot(model.summary$cp,xlab='Number of predictors',ylab='Cp',type='l')
+which.min(model.summary$cp)
+coef(model.fit,3)
+
+#Based on BIC, 3 gives you the best model! :)
+plot(model.summary$bic,xlab='Number of predictors',ylab='BIC',type='l')
+which.min(model.summary$bic)
+
+
+#Based on adjusted R2, which again gives 3 as the best model
+plot(model.summary$adjr2,xlab='Number of predictors',ylab='Adj R^2',type='l')
+which.max(model.summary$adjr2)
+coef(model.fit,5)
+```
+
+It should be noted that before using set.seed(2016), the random call generated a Cp=8, AdjR2=8 and BIC=3! So it looks like in the face of noise, using BIC is a pretty good option.

@@ -1,0 +1,192 @@
+---
+title: "Homework 3"
+author: "Lin Lee Cheong"
+output: word_document
+---
+
+
+##Problem 1
+a) As lambda goes to infinity, the integral term in g1 and g2 in the regularization/roughness penalty term will need to go to zero. Since g2 has more degrees of freedom it will be able to fit the data better than g1 and so g2 will have smaller training RSS.  
+  
+b) Training RSS is not a good indicator for test RSS. It is not possible to know beforehand which one will be better, depending on the bias-variance tradeoff.  
+  
+c) When lambda is zero, both minimization functions will be exactly the same so both functions will have the same training and test RSS.  
+
+
+##Problem 2 Part a)
+```{r}
+require(ISLR)
+require(MASS)
+attach(Boston)
+
+##Part a)
+
+#cubic polynomial regression to predict NOX
+cubicModel<-lm(nox~poly(dis,degree=3,raw=TRUE))
+summary(cubicModel)
+
+#plot third order polynomial prediction vs actual data 
+plot(dis,nox,pch=16,col='black')
+points(dis,predict(cubicModel),col='red',pch=16)
+legend('topright',legend = c('data','cubic prediction'),fill=c('black','red'))
+
+```
+
+#Part b)
+```{r}
+orders<-seq(1:10)
+RSS<-rep(NA,length(orders))
+
+#fit model for every order, and calculate the RSS
+for (order in orders){
+  polyModel<-lm(nox~poly(dis,degree=order,raw=TRUE))
+  polyModel.pred<-predict(polyModel)
+  RSS[order]<-sum((polyModel.pred-nox)^2)
+}
+
+#The associated RSS, plotted and numbers printed out
+plot(orders,RSS,pch=16,xlab='order of polynomial')
+lines(orders,RSS)
+RSS
+
+```
+
+#Part c) CV calculations
+```{r}
+length(nox)
+#There is 506 data points, so 5 fold cross validation is probably sufficient
+require(boot)
+cv.error.5<-rep(NA,10)
+
+#use second delta for sample size adjusted errors
+set.seed(2016)
+for(order in orders){
+  polyModel<-glm(nox~poly(dis,degree=order,raw=TRUE))
+  cv.error.5[order]<-cv.glm(data.frame(nox=nox,dis=dis),polyModel,K=5)$delta[2]
+}
+
+#The minimum in CV suggests that a fourth order polynomial will give you the best results. Visually looking at the data though, there is almost no difference between the third and fourth order polynomial in terms of CV errors, and using the general rule of keeping it as simple as possible and 1 SE rule, second order polynomial is preferable as there is almost no difference between second to fourth orders.
+which.min(cv.error.5)
+plot(orders,cv.error.5,pch=16,xlab='order of polynomial')
+lines(orders,cv.error.5)
+```
+
+#Part d) regression spline
+```{r}
+require(splines)
+splModel<-lm(nox~bs(dis,df=4))
+#I let it pick the knots at percentiles. There is only one knot when using df=4
+attr(bs(dis,df=4),'knots')
+plot(dis,nox,pch=16)
+points(dis,predict(splModel),pch=16,col='red')
+legend('topright',legend=c('data','spline'),fill=c('black','red'))
+```
+
+#Part e) Find RSS of spline regression
+```{r}
+orders.spl<-seq(3,15)
+RSS.spl<-rep(NA,length(orders.spl))
+#fit model for every order, and calculate the RSS
+for (order in orders.spl){
+  splModel<-lm(nox~bs(dis,df=order))
+  splModel.pred<-predict(splModel)
+  RSS.spl[order-2]<-sum((splModel.pred-nox)^2)
+}
+
+#The training RSS reduces as the number of degrees of freedom increases generally as the model is able to fit the data better. There is a blip at df=9, probably because the function moves the knots around.
+plot(orders.spl,RSS.spl,pch=16)
+lines(orders.spl,RSS.spl)
+```
+
+#Part f) Use 5 fold CV to find best degree of freedom on spline regression
+```{r,warning=FALSE}
+cv.error.spl<-rep(NA,length(orders.spl))
+
+#use second delta for sample size adjusted errors
+set.seed(2016)
+for(order in orders.spl){
+  splModel<-glm(nox~bs(dis,df=order))
+  cv.error.spl[order-2]<-cv.glm(data.frame(nox=nox,dis=dis),splModel,K=5)$delta[2]
+}
+
+#Using cross-validation, it would suggest that using 10 orders of degrees of freedom will give the lowest CV error. Unlike the training RSS, continuing to increase the degrees of freedom does not always result in lower CV errors. Need to add +2 to the index of which it is minimum because I started at df=3
+which.min(cv.error.spl)
+plot(orders.spl,cv.error.spl,pch=16,xlab='order of polynomial')
+lines(orders.spl,cv.error.spl)
+```
+
+##Problem #3
+
+#Part a) Find gender
+I know in general taller people will be more likely to be men. Plotting below tells me if Gender=1, that means the person is Male as most of the gender in the plot is one when the height is above 180.
+```{r}
+load("C:/Users/licheong/Documents/Classes_ISLR/body.RData")
+plot(Y$Height,Y$Gender,pch=16)
+```
+
+#Part b)
+The predictors need to be scaled to standardize each predictors. As was shown in class, the predictors (example:wrist diameter and navel girth) have very different ranges and values.
+```{r}
+test<-sample((1:nrow(X)),200)
+train<-(1:nrow(X))[-test]
+
+#create dataframe to run pcr and plsr
+allDF<-X
+allDF$Weight<-Y$Weight
+
+require(pls)
+pcr.fit<-pcr(Weight~.,data=allDF,subset=train,scale=TRUE,validation='CV')
+pls.fit<-plsr(Weight~.,data=allDF,subset=train,scale=TRUE,validation='CV')
+```
+
+#Part c)
+It looks like it takes a fair amount of components on both PCR and PLSR to explain 90% of the variance. It seems that PCR is able to explain more of the variance with the same number of components compared to PLSR, except when the total number of components is very high (>19 components). This is probably because PLSR is a supervised learning method while PCR is not, and so PLSR is probably optimizing the component choices based on Weight (which PCR is not doing).
+```{r}
+summary(pcr.fit)
+summary(pls.fit)
+``` 
+
+#Part d)
+Use cross-validation data to determine number of components used, using validationplot() as described in the textbook. 
+For PCR, there is a shallow gradual slope from using 1 components and seems to taper off around N=5. After N=5 there is still a very graduate decrease in errors but does not seem worth the massive increase in number of components.
+
+This similar trend is observed with PLSR as well, although it seems to taper off quicker, around N=4. 
+```{r}
+validationplot(pcr.fit,val.type='MSEP')
+validationplot(pls.fit,val.type='MSEP')
+```
+
+#Part e)
+Both methods are not feature selection methods. To get to a principle component requires the linear combination of all the 21 different quantities. To do feature selection, one could use forward stepwise selection.
+```{r}
+require(leaps)
+set.seed(2016)
+fss.fit<-regsubsets(Weight~.,data=allDF,subset=train,nvmax=21,method='forward')
+fss.summary<-summary(fss.fit)
+
+#select best model using bic (tends towards smaller models), which requires 12 degrees of freedom
+plot(fss.summary$bic,type='l')
+which.min(fss.summary$bic)
+coef(fss.fit,12)
+```
+
+#Part f)
+For PCR, use the first 5 principle components. For PLSR, use the first 4 principle components. For FSS, use only the features listed in part e).
+```{r}
+pcr.pred<-predict(pcr.fit,allDF[test,],ncomp=5)
+pls.pred<-predict(pls.fit,allDF[test,],ncomp=4)
+
+#Annoyingly no predict function for forward stepwise
+coef12<-coef(fss.fit,12)
+test.mat<-model.matrix(Weight~.,data = allDF[test,])
+fss.pred<-test.mat[,names(coef12)]%*%coef12
+
+#Compare performance in terms of mean error in predictions
+#Average error for PCR
+mean((Y$Weight[test]-pcr.pred)^2)
+#Average error for PLS
+mean((Y$Weight[test]-pls.pred)^2)
+#Average error for FSS
+mean((Y$Weight[test]-fss.pred)^2)
+```
+The test error performance above shows that PLSR performed the best, with average error of 8.6, while forward stepwise selection and PCR performed roughly the same at around 9.2.

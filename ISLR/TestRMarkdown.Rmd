@@ -1,0 +1,29 @@
+---
+title: "This is a test document"
+output: word_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+This document is for me to try and figure out how to use Rmarkdown to generate documents
+
+```{r}
+library(MASS)
+library(caTools)
+#use parameters freely
+attach(Boston)
+set.seed(2016)
+spl<-sample.split(Boston$crim, SplitRatio=0.5)
+train<-subset(Boston,spl==TRUE)
+test<-subset(Boston,spl==FALSE)
+```
+
+You can also embed plots, for example:
+
+```{r, echo=FALSE}
+plot(lstat,crim,col='red')
+```
+
+

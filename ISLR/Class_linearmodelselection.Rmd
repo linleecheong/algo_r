@@ -1,0 +1,105 @@
+Model Selection
+===============
+
+Goal is to try to predict the salary values of players.
+
+```{r}
+library(ISLR)
+summary(Hitters)
+```
+
+There are some missing values here, so before we proceed we will remove them:
+
+```{r}
+Hitters<-na.omit(Hitters)
+#check if there are any NAs left in the salary
+with(Hitters,sum(is.na(Salary)))
+```
+
+
+
+
+Best Subset Regression
+-------------------------
+Best subset regression looks through all possible regression models of all different subset sizes and looks for the best of each size. Produces a sequence of models which is best subset for each particular size.  
+  
+  We will now use the packages `leaps` to evaluate all the best-subset models, on all 19 variables. 
+  
+```{r}
+library(leaps)
+regfit.full<-regsubsets(Salary~.,data=Hitters)
+
+#Puts a star on variables that are used. Looks like variables are nested but in reality they are not.
+summary(regfit.full)
+```
+
+It gives by defualt best-subsets up to size 8; lets increase that to 19, i.e. all the variables
+```{r}
+regfit.full<-regsubsets(Salary~.,data=Hitters, nvmax=19)
+reg.summary=summary(regfit.full)
+names(reg.summary)
+
+#cp is estimate of prediction error, use this to select the best subset
+plot(reg.summary$cp,xlab='Number of variables',ylab='Cp')
+which.min(reg.summary$cp)
+points(10,reg.summary$cp[10],pch=20,col='red')
+```
+
+There is a plot method for the `regsubsets` object
+```{r}
+plot(regfit.full,scale='Cp')
+#gives you the coefficients in the model you have picked
+coef(regfit.full,10)
+```
+
+Forward Stepwise Selection
+--------------------------
+Greedy Algorithm that produces a nested sequence. Less adventurous search, only add variable that improves the set the most.  
+
+Need to include method='forward'
+```{r}
+regfit.fwd<-regsubsets(Salary~.,data=Hitters,nvmax=19,method='forward')
+
+#Here you'll see that the models are nester
+summary(regfit.fwd)
+plot(regfit.fwd,scale='Cp')
+```
+
+Model Selection using a Validation Set
+--------------------------------------
+let's make a training and validation set, so we can choose a good subset model. We will do it slightly different approach from the book.
+```{r}
+dim(Hitters)
+set.seed(1)
+#sample from the sequence 180 indexes of observations
+train=sample(seq(263),180,replace=FALSE)
+train
+regfit.fwd<-regsubsets(Salary~.,data=Hitters[train,],method='forward',nvmax=19)
+```
+
+We will now make predictions on the observations not used for training. We know there are 19 models, so we set up some vectors to record the errors. Unfortunately there is no predict method for regsubsets.
+```{r}
+val.errors=rep(NA,19)
+
+#index by -train, to exclude observation index
+x.test=model.matrix(Salary~.,data=Hitters[-train,])
+for(i in 1:19){
+  coefi=coef(regfit.fwd,id=i)
+  pred=x.test[,names(coefi)]%*%coefi
+  val.errors[i]=mean((Hitters$Salary[-train]-pred)^2)
+}
+
+plot(sqrt(val.errors),ylab='Root MSE',ylim=c(300,400),pch=19,type='b')
+points(sqrt(regfit.fwd$rss[-1]/180),col='blue',pch=19,type='b')
+legend('topright',legend=c('Training','Validation'),col=c('blue','black'),pch=19)
+```
+As we expect, the training error goes down monotonically asthe model gets bigger but not so for the validation error. This was a little tedious, not having a predict method for regsubsets. So we'll write one!
+
+```{r}
+predict.regsubset=function(object,newdata,id,...){
+  form=as.formula(object$call[[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  mat[,names(coefi)%*%coefi]
+  
+}

@@ -1,0 +1,318 @@
+---
+title: Homework #2
+author: "LinLeeCheong"
+date: "February 5, 2016"
+output: word_document
+---
+
+
+## Problem #1
+
+Part (a)  
+```{r}
+
+# X1=hours studied
+# X2=undergrad GPA
+# Y=receive A
+# coefficients
+beta0=-6
+beta1=0.05
+beta2=1
+
+# input from problem set
+X1=40
+X2=3.5
+
+# calculate probability
+nominator=exp(beta0+beta1*X1+beta2*X2)
+denominator=1+exp(beta0+beta1*X1+beta2*X2)
+probability=nominator/denominator
+probability
+```
+
+
+Part b:
+```{r}
+# probability=exp(beta0+beta1*X1+beta2*X2)/(1+exp(beta0+beta1*X1+beta2*X2))
+# for 50% probability:
+# 0.5*(1+exp(beta0+beta1*X1+beta2*X2))=exp(beta0+beta1*X1+beta2*X2)
+# 1=exp(beta0+beta1*X1+beta2*X2)
+# 0=beta0+beta1*X1+beta2*X2
+# X1=(-beta0-beta2*X2)/beta1
+
+# Number of hours the student needs to study is:
+(-beta0-beta2*X2)/beta1
+```
+
+## Problem #2 
+
+To find the standard error of response Y, we would need many samples of Y to calculate this. To get the maximum number of Y's, approaches like leave-one-out cross-validation (LOOCV) would be useful. So if I have 100 samples, I could build a model using 99 samples and calculate the predicted Y on the last sample. Repeat for all samples, and get the standard deviation of the predicted Y.  
+(I do suppose there is value in finding SD of a predicted Y, although I would think that there is much more value in knowing the SD of the difference between the predicted and actual Y, i.e. error)
+
+## Problem #3
+Part a:  
+In k-fold validation, the data is divided into k parts. One part is retained and the k-1 remaining parts are used to fit the model. The retained part of the data is then used to estimate the test error on that particular model.  
+This is repeated through all the parts (or folds) such that every part is used for the test error estimation once. The final estimated test error is the weighted mean of the k test errors from each fitted model.  
+  
+Part b:   
+i. In validation set approach one would separate the data into training data and test data. So the data used to train the model is much less than the total number of data available, which causes the model to be less accurate (generally as number of points used to fit data increases, the error rate of the model goes down). So it would have a risk of over-estimating the test error. Depending on luck and how the data is separated into trainind and test data, the estimate will also be highly variable. However, only one model is fitted so computationally this is very quick.   
+In k-fold cross-validation, k-models are fitted and used to estimate the test error. This will require k models to be fitted so computationally it is more intensive than validation set approach. However, the k models will end up using all the data at some point, so our estimation of the test error will be better than validation set approach.  
+  
+ii. In LOOCV, all the models build are highly correlated compared to the k models fitted by k-fold cross validation, so it will have higher variance but lower bias as it sees almost all the training data. In reality, k=5 or 10 is probably a good trade-off.
+
+##Problem #4
+#Part a):  
+The training RSS will steadily increase, as increasing lambda will force the coefficients smaller than they would have for full LSE. It's usually to reduce overfitting but if lambda is big enough then the model cannot fit properly as we would like to and the training error will go up.  
+
+#Part b):
+The training RSS will decrease initially and then eventually start increasing in a U-shape. There will be a sweet spot (courtesy of bias-variance tradeoff) where the low lambda is able to reduce overfitting well (low variance) but not be too rigid (at high values) that it introduces bias. 
+
+#Part c):
+The variance will steadily decrease, as increasing lambda has the effect of preventing overfitting (and 'freedom' of the coefficients). Intuitively, when lambda is sufficiently large enough, then all the coefficients are really small and so changing the training data sets will not give much difference anymore.
+
+#Part d):  
+The squared bias will steadily increase, as increasing lambda causes larger coefficients to pay a penalty. So when lambda is sufficiently large enough, the model is no longer able to follow the relationship well anymore.
+
+#Part e)
+Irreducible error is the error that we cannot correct or know. The best we can do is remove reducible error, and as shown in Chapter 2 this remains constant.  
+
+
+##Problem #5
+```{r}
+
+## Part (a)
+library(ISLR)
+library(MASS)
+# check dataset
+str(Weekly)
+
+# build model & look at results
+glm.fit<-glm(Direction~Lag1+Lag2+Lag3+Lag4+Lag4+Volume,data=Weekly,family=binomial)
+summary(glm.fit)
+
+# Only Lag2 is statistically significant
+
+## Part (b)
+glm.probs<-predict(glm.fit,type='response')
+glm.pred=rep('Down',length(glm.probs))
+glm.pred[glm.probs>0.5]<-'Up'
+table(glm.pred,Weekly$Direction)
+
+# table shows that it correctly predicted that returns would go down 55 times and that returns would go up 560 times. 
+# these are training performance
+# accuracy is 56.5%
+100*mean(glm.pred==Weekly$Direction)
+# training error is 43.5%
+100*mean(glm.pred!=Weekly$Direction)
+# the false positive rate is 429/(429+55)=88.6%. This tells me the times model mistakenly thought market would go up but it actually went down.
+100*429/(429+55)
+# the false negative rate is 45/(45+560)=7.4%. This tells me the times the model mistakenly though market would go down but it actually went down.
+100*45/(45+560)
+
+## Part (c)
+train<-subset(Weekly,Weekly$Year<=2008)
+test<-subset(Weekly,Weekly$Year>2008)
+glm.fit.train<-glm(Direction~Lag1+Lag2+Lag3,data=train, family=binomial)
+glm.prob.test<-predict(glm.fit.train,newdata=test,type='response')
+glm.pred.test=rep('Down',length(glm.prob.test))
+glm.pred.test[glm.prob.test>0.5]<-'Up'
+
+# The confusion matrix on the test data is
+table(glm.pred.test,test$Direction)
+
+# overall fraction of correct predictions is 57.7%
+mean(glm.pred.test==test$Direction)
+
+## Part (d)
+lda.fit.train<-lda(Direction~Lag1+Lag2+Lag3,data=train)
+lda.fit.train
+lda.test.pred<-predict(lda.fit.train,test)$class
+
+#compare to logistic regression, it gives the exact same results!
+table(lda.test.pred,test$Direction)
+table(glm.pred.test,test$Direction)
+
+#overall accuracy is also 57.7%
+mean(lda.test.pred==test$Direction)
+
+## Part (e)
+library(class)
+train.X<-cbind(train$Lag1,train$lag2,train$lag3)
+test.X<-cbind(test$Lag1,test$lag2,test$lag3)
+set.seed(2016)
+knn.pred<-knn(train.X,test.X,train$Direction,k=1)
+#confusion matrix for KNN
+table(knn.pred,test$Direction)
+#accuracy of knn using 1 nearest neighbours
+mean(knn.pred==test$Direction)
+
+## Part (f)
+# LDA and Logistic regression have the best and same accuracy and results. KNN has lower accuracy compared to LDA and logistic regression
+
+## Part (g)
+# When there are clear separations between classes, parameter estimates using logistic regression can be unstable and expect LDA model to perform better
+
+## Part (h)
+# When the boundaries are highly non-linear and this non-linearity is not captured by feature transformation such as X^2 and X^3 then KNN with the appropriate number of neighbours has higher flexibility and will be expected to perform better than logistic regression.
+
+
+```
+
+##Problem #6
+
+```{r,warning=FALSE}
+#read in files & construct data frame as was in class
+games <- read.csv("C:/Users/licheong/Documents/Classes_ISLR/games.csv",as.is=TRUE)
+teams <- read.csv("C:/Users/licheong/Documents/Classes_ISLR/teams.csv",as.is=TRUE)
+all.teams <- sort(unique(c(teams$team,games$home,games$away)))
+
+# classifying as win or lose
+z <- ifelse((games$homeScore - games$awayScore)>0,1,0)
+
+# construct data frame
+rawdata <- as.data.frame(matrix(0,nrow(games),length(all.teams)))
+names(rawdata) <- all.teams
+
+for(tm in all.teams) {
+    rawdata[[tm]] <- 1*(games$home==tm) - 1*(games$away==tm)
+}
+
+#append z
+rawdata$z<-z
+
+#pick stanford as 0 team for identifiability
+rawdata<-rawdata[,names(rawdata)!='stanford-cardinal']
+
+#add home advantage data
+rawdata$homeAdv<-1 - games$neutralLocation
+
+# use only regular season games
+reg.season.games <- which(games$gameType=="REG")
+
+## part a) fit logistic model
+logreg<-glm(z~0+.,data=rawdata,subset=reg.season.games,family='binomial')
+
+# look at coefficients, indeed saint-Mary-saint-mary and St.-thomas-(tx)-celts have very high coefficients
+coef(summary(logreg))
+
+# look into the original games data, both teams played only once and won
+subset(games, games$away=='saint-mary-saint-mary')
+subset(games, games$home=='saint-mary-saint-mary')
+subset(games, games$away=='st.-thomas-(tx)-celts')
+subset(games, games$home=='st.-thomas-(tx)-celts')
+
+## part b) 
+# identify teams with <5 games
+number.games <- function(team) {
+    with(games, sum(home==team) + sum(away==team))
+}
+number.games <- sapply(teams$team, number.games)
+teamsToKeepByGames<-number.games>5
+teamsToKeepNames<-names(teamsToKeepByGames)[teamsToKeepByGames]
+
+# remove the rows 
+rowsToKeep<-(games$away %in% teamsToKeepNames)*(games$home %in% teamsToKeepNames)
+filtereddata<-rawdata[which(rowsToKeep==TRUE),]
+
+# fix the regular season games
+filtered.reg.season.games<- which(games$gameType[which(rowsToKeep==TRUE)]=="REG")
+
+# refit logistic regression
+logreg.filtered<-glm(z~0+.,data=filtereddata,subset=filtered.reg.season.games,family='binomial')
+
+# keep coefficients
+logreg.coef<-coef(logreg.filtered)[paste("`",teams$team,"`",sep="")]
+head(logreg.coef)
+
+# build linear regression, make sure using filtered data (teams removed) to be able to compare to logistic regression
+filtereddata.linreg<-filtereddata
+filtereddata.linreg$y<-games$homeScore[which(rowsToKeep==TRUE)]-games$awayScore[which(rowsToKeep==TRUE)]
+
+# fit linear regression without z variable
+linreg.filtered<-lm(y~0+.-z,data=filtereddata.linreg,subset=filtered.reg.season.games)
+linreg.coef<-coef(linreg.filtered)[paste("`",teams$team,"`",sep="")]
+
+# logreg rankings
+rank.table.logreg<-cbind('LogReg Model Score'=logreg.coef,'LinReg Model Score'=linreg.coef,
+                         'LinReg Rank'=rank(-linreg.coef,ties='min'),
+                         'LogReg Model Rank'=rank(-logreg.coef,ties='min'),
+                         'AP Rank'=teams$apRank, 'USAT Rank'=teams$usaTodayRank)
+
+# looks like logistic regression performs better than linear regression when compared to the AP and USA Today rankings. Top three from logistic regression are the same as AP and USA today ranking, while linear regression has ranks in 30s & 40s for the top 15 ranked by logistic regression.
+rank.table.logreg[order(logreg.coef, decreasing=TRUE)[1:25],]
+
+
+## Part c
+# extract coefficient values and p values
+logreg.pvalue<-summary(logreg.filtered)$coefficients[,4]
+logreg.pvalue.y<-summary(logreg.filtered)$coefficients[,1]
+linreg.pvalue<-summary(linreg.filtered)$coefficients[,4]
+linreg.pvalue.y<-summary(linreg.filtered)$coefficients[,1]
+
+# retain only pvalues that have a positive beta, i.e. better than stanford
+logreg.pvalue.ypositive<-logreg.pvalue[logreg.pvalue.y>0]
+linreg.pvalue.ypositive<-linreg.pvalue[linreg.pvalue.y>0]
+
+# about 30% of the teams for logistic regression and 33% for linear regression
+mean(logreg.pvalue.ypositive<0.05)
+mean(linreg.pvalue.ypositive<0.05)
+
+## part d
+# use all games for simplicity
+datapartD<-subset(filtereddata.linreg,games$gameType[which(rowsToKeep==TRUE)]=="REG")
+# have total 5430 sampling points. TO use 10 fold, means have 543 points per fold
+numbersStart<-seq(1,5430,by=543)
+numbersEnd<-seq(543,5430,by=543)
+iteration<-seq(1:length(numbersStart))
+
+n11<-rep(0,length(iteration))
+n12<-rep(0,length(iteration))
+n21<-rep(0,length(iteration))
+n22<-rep(0,length(iteration))
+
+for (currentIter in iteration){
+  #split into training and test data
+  indexes<-numbersStart[currentIter]:numbersEnd[currentIter]
+  testData<-datapartD[c(indexes),]
+  trainData<-datapartD[-c(indexes),]
+  
+  #build logistic regresion model
+  logmod<-glm(z~0+.-y,data=trainData,family='binomial')
+  logmod.test<-predict(logmod,newdata=testData,type='response')
+  logmod.test.pred<-ifelse(logmod.test>0.5,1,0)
+  
+  linmod<-lm(y~0+.-z,data=trainData)
+  linmod.test<-predict(linmod,newdata=testData)
+  linmod.test.pred<-ifelse(linmod.test>0,1,0)
+  t<-table(linmod.test.pred,logmod.test.pred)
+  n11[iteration]<-t[1,1]
+  n12[iteration]<-t[1,2]
+  n21[iteration]<-t[2,1]
+  n22[iteration]<-t[2,2]
+}
+
+#so the table (I don't know how to make it look like a real table) contains the following:
+# n11
+sum(n11)
+# n12
+sum(n12)
+# n21
+sum(n21)
+# n22
+sum(n22)
+
+## part e)
+D<-sum(n12)+sum(n21)
+D.mean<-D/2
+D.sd<-sqrt(D)/2
+n12.probability<-pnorm(sum(n12),D.mean,D.sd)
+n21.probability<-pnorm(sum(n21),D.mean,D.sd)
+
+# probability that logistic is wrong and linear is right is
+n12.probability
+
+# probability that linear regression is right and logistic is wrong is 
+n21.probability
+
+# if both models are equally good, then the likelihood should be about the same, instead n21 is almost twice as likely than n12. So the conclusion of the test says that the games are not independent.
+```

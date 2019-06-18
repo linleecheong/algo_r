@@ -1,0 +1,28 @@
+---
+title: "Cross Validation Web Tutorial"
+author: "Lin Lee Cheong"
+date: "January 26, 2016"
+output: word_document
+---
+
+
+The data that we are using is Auto dataset, as shown below.
+```{r}
+require(ISLR)
+require(boot)
+plot(mpg~horsepower,data=Auto)
+```
+
+Leave-one-out-cross-validation(LOOCV) 
+1. glm can be used for linear regression! Just remove the logistic regression *family='binomial'* requirement
+2. first is raw leave-one-out, second is bias-corrected version of it (training set is slightly smaller)
+
+```{r}
+glm.fit<-glm(mpg~horsepower,data=Auto)
+cv.glm(Auto,glm.fit)$delta
+```
+
+loocv=function(fit){
+  h=lm.influence(fit)$h
+  mean((residuals(fit)/(1-h))^2) #element by element division
+}
